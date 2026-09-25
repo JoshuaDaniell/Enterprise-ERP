@@ -1,0 +1,31 @@
+# Frontend dependencies and build output
+**/node_modules/
+**/dist/
+**/.vite/
+**/.env
+**/.env.*
+!**/.env.example
+
+# Java / Maven
+**/target/
+**/.mvn/timing.properties
+*.class
+*.iml
+.idea/
+
+# Runtime data and local volumes
+*.log
+Docker/**/data/
+docker-volumes/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor settings
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.example.json
+
+Microservices/sales-service/bin/
