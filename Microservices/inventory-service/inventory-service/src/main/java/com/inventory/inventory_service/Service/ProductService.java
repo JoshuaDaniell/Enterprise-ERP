@@ -7,11 +7,15 @@ import com.inventory.inventory_service.Dto.StockAdjustmentDto;
 import com.inventory.inventory_service.Dto.StockMovementResponseDto;
 import com.inventory.inventory_service.Entity.Product;
 import com.inventory.inventory_service.Entity.StockMovement;
+import com.inventory.inventory_service.Entity.OutboxEvent;
+import com.inventory.inventory_service.Entity.OutboxStatus;
 import com.inventory.inventory_service.Exception.DuplicateResourceException;
 import com.inventory.inventory_service.Exception.InsufficientStockException;
 import com.inventory.inventory_service.Exception.ResourceNotFoundException;
 import com.inventory.inventory_service.Repository.ProductRepository;
 import com.inventory.inventory_service.Repository.StockMovementRepository;
+import com.inventory.inventory_service.Repository.OutboxEventRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -23,6 +27,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.time.Instant;
+import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -32,7 +39,8 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final StockMovementRepository stockMovementRepository;
-    private final com.inventory.inventory_service.Kafka.InventoryKafkaPublisher kafkaPublisher;
+    private final OutboxEventRepository outboxEventRepository;
+    private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
     public Page<ProductResponseDto> getProducts(String search, Pageable pageable) {
@@ -44,6 +52,14 @@ public class ProductService {
     @Cacheable(value = RedisConfig.CACHE_PRODUCTS)
     public List<ProductResponseDto> getAllProducts() {
         return productRepository.findAll().stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProductResponseDto> getOrderableProducts() {
+        return productRepository.findAll().stream()
+                .filter(product -> product.getQuantity() != null && product.getQuantity() > 0)
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -154,9 +170,7 @@ public class ProductService {
         product.setQuantity(newQuantity);
         Product savedProduct = productRepository.save(product);
 
-        if (newQuantity < 10) {
-            kafkaPublisher.publishStockLow(savedProduct.getSku(), newQuantity);
-        }
+        if (newQuantity < 10) recordStockLow(savedProduct);
 
         recordStockMovement(
                 savedProduct.getId(),
@@ -201,6 +215,28 @@ public class ProductService {
                 .reason(reason)
                 .build();
         stockMovementRepository.save(movement);
+    }
+
+    private void recordStockLow(Product product) {
+        try {
+            String eventId = UUID.randomUUID().toString();
+            String payload = objectMapper.writeValueAsString(Map.of(
+                    "eventId", eventId,
+                    "eventType", "STOCK_LOW",
+                    "occurredAt", Instant.now().toString(),
+                    "sku", product.getSku(),
+                    "quantity", product.getQuantity()));
+            outboxEventRepository.save(OutboxEvent.builder()
+                    .eventId(eventId)
+                    .eventType("STOCK_LOW")
+                    .aggregateType("PRODUCT")
+                    .aggregateId(product.getSku())
+                    .payload(payload)
+                    .status(OutboxStatus.PENDING)
+                    .build());
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to persist stock-low event", ex);
+        }
     }
 
     private Product findProductByIdOrThrow(Long id) {

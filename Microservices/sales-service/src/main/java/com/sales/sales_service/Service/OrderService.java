@@ -23,6 +23,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.sales.sales_service.Repository.ProcessedEventRepository;
+import java.time.Instant;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -31,6 +34,7 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final CustomerRepository customerRepository;
     private final OrderEventProducer orderEventProducer;
+    private final ProcessedEventRepository processedEventRepository;
 
     @Transactional
     @CacheEvict(cacheNames = RedisConfig.ORDERS, allEntries = true)
@@ -93,9 +97,12 @@ public class OrderService {
         Order savedOrder = orderRepository.save(order);
         log.info("Saved new Order '{}' with total ₹{}", savedOrder.getOrderNumber(), savedOrder.getTotalAmount());
 
-        // Publish ORDER_PLACED event to Kafka
+        // Publish ORDER_PLACED event to Kafka via transactional outbox
+        String eventId = UUID.randomUUID().toString();
         OrderPlacedEvent event = OrderPlacedEvent.builder()
+                .eventId(eventId)
                 .eventType("ORDER_PLACED")
+                .occurredAt(Instant.now())
                 .orderId(savedOrder.getId())
                 .orderNumber(savedOrder.getOrderNumber())
                 .customerId(customer.getId())
@@ -103,7 +110,6 @@ public class OrderService {
                 .customerEmail(customer.getEmail())
                 .totalAmount(savedOrder.getTotalAmount())
                 .items(eventItems)
-                .placedAt(savedOrder.getOrderDate())
                 .build();
 
         orderEventProducer.publishOrderPlacedEvent(event);
@@ -141,6 +147,10 @@ public class OrderService {
         OrderStatus currentStatus = order.getStatus();
         OrderStatus newStatus = dto.getStatus();
 
+        if (newStatus != OrderStatus.CANCELLED || currentStatus != OrderStatus.PENDING) {
+            throw new InvalidOperationException("Order fulfillment status is controlled by the inventory event workflow");
+        }
+
         if (currentStatus == OrderStatus.CANCELLED || currentStatus == OrderStatus.CONFIRMED) {
             if (currentStatus == newStatus) {
                 return mapToResponseDto(order);
@@ -167,11 +177,19 @@ public class OrderService {
     }
 
     @Transactional
-    public void updateStatusFromInventory(String orderNumber, OrderStatus newStatus, String remarks) {
+    @CacheEvict(cacheNames = RedisConfig.ORDERS, allEntries = true)
+    public void updateStatusFromInventory(String orderNumber, OrderStatus newStatus, String remarks, String eventId) {
         Order order = orderRepository.findByOrderNumber(orderNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderNumber));
         if (order.getStatus() == newStatus) {
+            if (eventId != null && !eventId.isBlank() && !processedEventRepository.existsByEventId(eventId)) {
+                processedEventRepository.save(ProcessedEvent.builder().eventId(eventId).build());
+            }
             return;
+        }
+        if (order.getStatus() != OrderStatus.PENDING
+                || (newStatus != OrderStatus.CONFIRMED && newStatus != OrderStatus.REJECTED)) {
+            throw new InvalidOperationException("Inventory result cannot be applied to order in status " + order.getStatus());
         }
         OrderStatus previous = order.getStatus();
         order.setStatus(newStatus);
@@ -182,7 +200,13 @@ public class OrderService {
                 .changedBy("INVENTORY_SERVICE")
                 .build());
         orderRepository.save(order);
+
+        if (eventId != null && !eventId.isBlank() && !processedEventRepository.existsByEventId(eventId)) {
+            processedEventRepository.save(ProcessedEvent.builder().eventId(eventId).build());
+        }
+
         orderEventProducer.publishOrderStatusChanged(orderNumber, newStatus.name());
+        log.info("Order '{}' updated from Inventory: {} -> {}", orderNumber, previous, newStatus);
     }
 
     @Transactional

@@ -42,23 +42,24 @@ lightweight workspace while Spring Boot applications handle each business area.
 
 ## Quick start with Docker Compose
 
-From the repository root:
+Copy `Docker/.env.example` to `Docker/.env`, replace every placeholder with a
+strong local secret, then run from the repository root:
 
 ```bash
-docker compose -f Docker/docker-compose.yml up --build
+docker compose --env-file Docker/.env -f Docker/docker-compose.yml up --build
 ```
 
 Open [http://localhost](http://localhost) after the containers become healthy.
 Stop the stack with:
 
 ```bash
-docker compose -f Docker/docker-compose.yml down
+docker compose --env-file Docker/.env -f Docker/docker-compose.yml down
 ```
 
 To remove persisted local database, cache, and event data as well:
 
 ```bash
-docker compose -f Docker/docker-compose.yml down -v
+docker compose --env-file Docker/.env -f Docker/docker-compose.yml down -v
 ```
 
 ## Local development
@@ -90,9 +91,67 @@ cd Microservices/finance-service
 mvn spring-boot:run
 ```
 
+All three applications require `APPLICATION_SECURITY_JWT_SECRET_KEY` at
+startup. Set it in the environment of each IDE run configuration (IntelliJ:
+**Run → Edit Configurations → Environment variables**) or in the shell before
+starting Maven. Use the same randomly generated value for Inventory, Sales,
+and Finance; use at least 32 characters and keep it private. For PowerShell,
+generate a value once and retain it securely:
+
+```powershell
+$env:APPLICATION_SECURITY_JWT_SECRET_KEY = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+```
+
+Then start each service from that PowerShell session, or copy the exact value
+into each IDE run configuration. Do not add a development fallback secret to
+the application files. Inventory also needs `USER_PROVISIONING_KEY` set when
+using its controlled user-provisioning endpoint.
+
 For local development, run MySQL, Redis, and the event broker with Docker
 Compose or provide equivalent services through the environment variables used
 by each Spring Boot application.
+
+### Authentication and user provisioning
+
+Login accepts only `username` and `password`. Roles are stored with the user in
+the Inventory service database and are copied into the signed JWT. No demo
+accounts or public self-registration are created. Set the same `JWT_SECRET_KEY`
+for all three services; it must contain at least 32 bytes. The Docker Compose
+configuration also requires a separate `USER_PROVISIONING_KEY`. Provision
+each account through the controlled Inventory endpoint:
+
+```bash
+curl -X POST http://localhost:18082/api/auth/provision \
+  -H "Content-Type: application/json" \
+  -H "X-Provisioning-Key: $USER_PROVISIONING_KEY" \
+  -d '{"username":"inventory","password":"<choose-a-password>","role":"ROLE_INVENTORY_USER"}'
+```
+
+Use `ROLE_SALES_USER` and `ROLE_FINANCE_USER` for the other accounts. The
+former development seed used `inventory/inventory123`, `sales/sales123`, and
+`finance/finance123`; those credentials are no longer created by the source
+code and should only work if those records already exist in your database.
+Existing legacy roles are migrated on Inventory startup: `ROLE_ADMIN` and
+`ROLE_WAREHOUSE_MANAGER` become `ROLE_INVENTORY_USER`; `ROLE_VIEWER` is
+disabled and mapped to the inventory enum value so the database contains only
+the three supported roles.
+
+### Event flow
+
+Sales writes `ORDER_PLACED` and `ORDER_STATUS_CHANGED` to its transactional
+outbox. Inventory consumes placed orders, reserves stock within one database
+transaction using optimistic locking, and records `STOCK_RESERVED` or
+`STOCK_REJECTED` in its outbox. Sales maps those results to `CONFIRMED` or
+`REJECTED`; Finance consumes the resulting events idempotently. The order
+workflow remains Kafka-based. Consumers use manual offset commits, bounded
+retries, and per-topic dead-letter topics (`<topic>.DLT`). Core topics use three
+partitions, replication factor one for the local single-broker Compose setup,
+and seven-day retention; dead-letter topics retain records for fourteen days.
+
+The MySQL initialization script creates separate Sales and Finance databases
+and grants the configured application user access to them on a new volume. For
+an existing `mysql_data` volume, create those databases and grants manually or
+use a fresh development volume before starting the services.
 
 ## Port map
 

@@ -52,7 +52,7 @@ const ProductTable = ({ products, onAdjustStock, onDeleteProduct }) => {
                                     <button 
                                         onClick={() => onAdjustStock(product.id, 1)}
                                         disabled={!canAdjustStock}
-                                        title={canAdjustStock ? "Increase stock by 1" : "Requires Warehouse Manager or Admin role"}
+                                        title={canAdjustStock ? "Increase stock by 1" : "Inventory access required"}
                                         className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-medium rounded border border-emerald-300 hover:bg-emerald-100 disabled:opacity-40 disabled:cursor-not-allowed transition text-xs"
                                     >
                                         +1
@@ -60,7 +60,7 @@ const ProductTable = ({ products, onAdjustStock, onDeleteProduct }) => {
                                     <button 
                                         onClick={() => onAdjustStock(product.id, -1)}
                                         disabled={!canAdjustStock || product.quantity <= 0}
-                                        title={canAdjustStock ? "Decrease stock by 1" : "Requires Warehouse Manager or Admin role"}
+                                        title={canAdjustStock ? "Decrease stock by 1" : "Inventory access required"}
                                         className="px-2.5 py-1 bg-amber-50 text-amber-700 font-medium rounded border border-amber-300 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed transition text-xs"
                                     >
                                         -1
@@ -69,7 +69,7 @@ const ProductTable = ({ products, onAdjustStock, onDeleteProduct }) => {
                                         <button 
                                             onClick={() => onDeleteProduct(product.id)}
                                             disabled={!canDeleteProduct}
-                                            title={canDeleteProduct ? "Delete product" : "Requires Admin role (ROLE_ADMIN)"}
+                                            title={canDeleteProduct ? "Delete product" : "Inventory access required"}
                                             className="px-2.5 py-1 bg-red-50 text-red-700 font-medium rounded border border-red-300 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed transition text-xs"
                                         >
                                             Delete

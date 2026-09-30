@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getAllCustomers, createOrder } from '../services/salesService';
-import { getAllProducts } from '../../inventory/services/inventoryservice';
+import { getAllCustomers, getOrderableProducts, createOrder } from '../services/salesService';
 
 const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
     const [customers, setCustomers] = useState([]);
@@ -13,27 +12,65 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
         { productSku: '', productName: '', unitPrice: 0, quantity: 1 }
     ]);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [referenceLoadAttempt, setReferenceLoadAttempt] = useState(0);
+    const [loadedReferenceAttempt, setLoadedReferenceAttempt] = useState(-1);
+    const [referenceError, setReferenceError] = useState(null);
     const [error, setError] = useState(null);
+    const isLoadingReferenceData = isOpen && loadedReferenceAttempt !== referenceLoadAttempt;
 
     useEffect(() => {
-        if (isOpen) {
-            Promise.all([getAllCustomers(), getAllProducts()])
-                .then(([custList, prodList]) => {
-                    setCustomers(Array.isArray(custList) ? custList : []);
-                    setProducts(Array.isArray(prodList) ? prodList : []);
-                    if (custList && custList.length > 0) {
-                        setSelectedCustomerId(custList[0].id);
-                        if (custList[0].addresses && custList[0].addresses.length > 0) {
-                            const addr = custList[0].addresses[0];
-                            const addrStr = `${addr.street}, ${addr.city}, ${addr.state} ${addr.postalCode}, ${addr.country}`;
-                            setShippingAddress(addrStr);
-                            setBillingAddress(addrStr);
+        if (!isOpen || loadedReferenceAttempt === referenceLoadAttempt) return undefined;
+
+        let isActive = true;
+
+        Promise.all([getAllCustomers(), getOrderableProducts()])
+            .then(([customerList, productList]) => {
+                if (!isActive) return;
+
+                if (Array.isArray(customerList) && Array.isArray(productList)) {
+                    setCustomers(customerList);
+                    setProducts(productList);
+                    if (customerList.length > 0) {
+                        setSelectedCustomerId(customerList[0].id);
+                        const address = customerList[0].addresses?.[0];
+                        if (address) {
+                            const addressText = `${address.street}, ${address.city}, ${address.state} ${address.postalCode}, ${address.country}`;
+                            setShippingAddress(addressText);
+                            setBillingAddress(addressText);
+                        } else {
+                            setShippingAddress('');
+                            setBillingAddress('');
                         }
+                    } else {
+                        setSelectedCustomerId('');
+                        setShippingAddress('');
+                        setBillingAddress('');
                     }
-                })
-                .catch(err => console.error("Failed to load reference data for order:", err));
-        }
-    }, [isOpen]);
+                } else {
+                    setCustomers([]);
+                    setProducts([]);
+                    setSelectedCustomerId('');
+                    setShippingAddress('');
+                    setBillingAddress('');
+                    setReferenceError('The Sales or Inventory service returned invalid order data.');
+                }
+                setLoadedReferenceAttempt(referenceLoadAttempt);
+            })
+            .catch((error) => {
+                if (!isActive) return;
+                setCustomers([]);
+                setProducts([]);
+                setSelectedCustomerId('');
+                setShippingAddress('');
+                setBillingAddress('');
+                setReferenceError(`Could not load customers or inventory products: ${error.response?.data?.message || error.message || 'an unexpected error occurred'}.`);
+                setLoadedReferenceAttempt(referenceLoadAttempt);
+            });
+
+        return () => {
+            isActive = false;
+        };
+    }, [isOpen, referenceLoadAttempt, loadedReferenceAttempt]);
 
     const handleCustomerChange = (customerId) => {
         setSelectedCustomerId(customerId);
@@ -43,23 +80,19 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
             const addrStr = `${addr.street}, ${addr.city}, ${addr.state} ${addr.postalCode}, ${addr.country}`;
             setShippingAddress(addrStr);
             setBillingAddress(addrStr);
+        } else {
+            setShippingAddress('');
+            setBillingAddress('');
         }
     };
 
-    const handleProductSelect = (index, sku) => {
-        const prod = products.find(p => p.sku === sku);
+    const handleProductChange = (index, sku) => {
+        const product = products.find(candidate => candidate.sku === sku);
         setItems(prev => {
             const next = [...prev];
-            if (prod) {
-                next[index] = {
-                    ...next[index],
-                    productSku: prod.sku,
-                    productName: prod.name,
-                    unitPrice: prod.price
-                };
-            } else {
-                next[index] = { ...next[index], productSku: sku, productName: '', unitPrice: 0 };
-            }
+            next[index] = product
+                ? { ...next[index], productSku: product.sku, productName: product.name, unitPrice: Number(product.price), quantity: 1, availableQuantity: product.quantity }
+                : { ...next[index], productSku: '', productName: '', unitPrice: 0, quantity: 1, availableQuantity: 0 };
             return next;
         });
     };
@@ -67,13 +100,16 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
     const handleQuantityChange = (index, qty) => {
         setItems(prev => {
             const next = [...prev];
-            next[index].quantity = Math.max(1, parseInt(qty, 10) || 1);
+            const requestedQuantity = Math.max(1, parseInt(qty, 10) || 1);
+            next[index].quantity = next[index].availableQuantity
+                ? Math.min(requestedQuantity, next[index].availableQuantity)
+                : requestedQuantity;
             return next;
         });
     };
 
     const addItemRow = () => {
-        setItems(prev => [...prev, { productSku: '', productName: '', unitPrice: 0, quantity: 1 }]);
+        setItems(prev => [...prev, { productSku: '', productName: '', unitPrice: 0, quantity: 1, availableQuantity: 0 }]);
     };
 
     const removeItemRow = (index) => {
@@ -89,8 +125,8 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
             alert("Please select a customer");
             return;
         }
-        if (items.some(i => !i.productSku || !i.unitPrice)) {
-            alert("Please select a valid product for every item row");
+        if (items.some(i => !i.productSku.trim() || !i.productName.trim() || Number(i.unitPrice) <= 0)) {
+            alert("Enter a SKU, product name, and positive unit price for every item");
             return;
         }
 
@@ -135,6 +171,38 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl font-bold p-1">&times;</button>
                 </div>
 
+                {isLoadingReferenceData && (
+                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 text-blue-700 text-xs rounded-lg">
+                        Loading customers and available inventory products...
+                    </div>
+                )}
+                {referenceError && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex justify-between items-center gap-3">
+                        <span>{referenceError}</span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setReferenceError(null);
+                                setError(null);
+                                setReferenceLoadAttempt(attempt => attempt + 1);
+                            }}
+                            disabled={isLoadingReferenceData}
+                            className="font-semibold underline disabled:opacity-50"
+                        >
+                            Retry
+                        </button>
+                    </div>
+                )}
+                {!isLoadingReferenceData && !referenceError && customers.length === 0 && (
+                    <div className="mb-4 p-3 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-lg">
+                        No customers are available. Add a customer before placing an order.
+                    </div>
+                )}
+                {!isLoadingReferenceData && !referenceError && products.length === 0 && (
+                    <div className="mb-4 p-3 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-lg">
+                        No products currently have available stock in Inventory.
+                    </div>
+                )}
                 {error && (
                     <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg">
                         ⚠️ {error}
@@ -148,8 +216,10 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
                             value={selectedCustomerId}
                             onChange={(e) => handleCustomerChange(e.target.value)}
                             required
+                            disabled={isLoadingReferenceData || customers.length === 0}
                             className="w-full p-2.5 border rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
                         >
+                            <option value="">-- Select a customer --</option>
                             {customers.map(c => (
                                 <option key={c.id} value={c.id}>
                                     {c.fullName} ({c.companyName ? `${c.companyName}, ` : ''}{c.email})
@@ -172,38 +242,37 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
 
                         {items.map((item, idx) => (
                             <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-white p-2 rounded border">
-                                <div className="col-span-5">
-                                    <label className="block text-[10px] text-gray-500 font-semibold mb-0.5">Product / SKU</label>
+                                <div className="col-span-8">
+                                    <label className="block text-[10px] text-gray-500 font-semibold mb-0.5">Product</label>
                                     <select
                                         value={item.productSku}
-                                        onChange={(e) => handleProductSelect(idx, e.target.value)}
+                                        onChange={(e) => handleProductChange(idx, e.target.value)}
                                         required
-                                        className="w-full p-1.5 border rounded text-xs bg-white focus:outline-none"
+                                        disabled={products.length === 0}
+                                        className="w-full p-1.5 border rounded text-xs bg-white focus:outline-none disabled:bg-gray-100"
                                     >
-                                        <option value="">-- Select Product --</option>
-                                        {products.map(p => (
-                                            <option key={p.sku} value={p.sku}>
-                                                {p.sku} - {p.name} (₹{p.price})
+                                        <option value="">-- Select an available product --</option>
+                                        {products.map(product => (
+                                            <option key={product.id} value={product.sku}>
+                                                {product.name} ({product.sku}) ? ?{Number(product.price).toFixed(2)} ? {product.quantity} available
                                             </option>
                                         ))}
                                     </select>
+                                    {item.productSku && <p className="mt-1 text-[10px] text-gray-500">SKU: {item.productSku}</p>}
                                 </div>
                                 <div className="col-span-2">
-                                    <label className="block text-[10px] text-gray-500 font-semibold mb-0.5">Price (₹)</label>
-                                    <input
-                                        type="number"
-                                        readOnly
-                                        value={item.unitPrice}
-                                        className="w-full p-1.5 border rounded text-xs bg-gray-100 text-gray-600 font-mono"
-                                    />
+                                    <label className="block text-[10px] text-gray-500 font-semibold mb-0.5">Unit Price</label>
+                                    <div className="p-1.5 text-xs bg-gray-50 rounded font-mono">?{Number(item.unitPrice || 0).toFixed(2)}</div>
                                 </div>
                                 <div className="col-span-2">
-                                    <label className="block text-[10px] text-gray-500 font-semibold mb-0.5">Qty</label>
+                                    <label className="block text-[10px] text-gray-500 font-semibold mb-0.5">Qty {item.availableQuantity ? `(max ${item.availableQuantity})` : ''}</label>
                                     <input
                                         type="number"
                                         min="1"
+                                        max={item.availableQuantity || undefined}
                                         value={item.quantity}
                                         onChange={(e) => handleQuantityChange(idx, e.target.value)}
+                                        disabled={!item.productSku}
                                         className="w-full p-1.5 border rounded text-xs focus:ring-1 focus:ring-blue-500"
                                     />
                                 </div>
@@ -265,7 +334,7 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
                         </button>
                         <button
                             type="submit"
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || isLoadingReferenceData || customers.length === 0 || products.length === 0}
                             className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-semibold text-xs rounded-lg shadow transition"
                         >
                             {isSubmitting ? 'Placing Order...' : '⚡ Confirm & Place Order'}

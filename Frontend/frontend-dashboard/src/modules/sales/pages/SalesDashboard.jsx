@@ -46,6 +46,16 @@ const SalesDashboard = () => {
         loadOrders();
     }, [loadOrders]);
 
+    useEffect(() => {
+        if (!orders.some((order) => order.status === 'PENDING')) return undefined;
+        const timer = window.setInterval(() => {
+            getAllOrders()
+                .then((data) => setOrders(Array.isArray(data) ? data : []))
+                .catch((err) => console.error('Unable to refresh pending order status:', err));
+        }, 3000);
+        return () => window.clearInterval(timer);
+    }, [orders]);
+
     const handleOrderCreated = (newOrder) => {
         setOrders(prev => [newOrder, ...prev]);
         setSelectedOrder(newOrder);
@@ -56,7 +66,7 @@ const SalesDashboard = () => {
         setSelectedOrder(updatedOrder);
     };
 
-    const canManageSales = hasRole('ROLE_ADMIN', 'ROLE_SALES_USER', 'ROLE_WAREHOUSE_MANAGER');
+    const canManageSales = hasRole('ROLE_SALES_USER');
 
     // Filter and search
     const filteredOrders = orders.filter(order => {
@@ -98,7 +108,7 @@ const SalesDashboard = () => {
                     <button
                         onClick={() => setIsCreateOpen(true)}
                         disabled={!canManageSales}
-                        title={canManageSales ? "Create a new sales order" : "Requires Admin, Sales, or Warehouse role"}
+                        title={canManageSales ? "Create a new sales order" : "Requires Sales access"}
                         className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-semibold text-xs rounded-lg shadow transition flex items-center gap-1.5"
                     >
                         ⚡ + Place Sales Order
@@ -136,7 +146,7 @@ const SalesDashboard = () => {
             {/* Filter & Search Bar */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                    {['ALL', 'PENDING', 'STOCK_RESERVED', 'CONFIRMED', 'CANCELLED'].map(status => (
+                    {['ALL', 'PENDING', 'CONFIRMED', 'REJECTED', 'CANCELLED'].map(status => (
                         <button
                             key={status}
                             onClick={() => setFilterStatus(status)}

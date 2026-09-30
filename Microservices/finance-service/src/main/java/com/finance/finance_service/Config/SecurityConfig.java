@@ -34,13 +34,24 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtFilter jwtFilter) throws Exception {
         return http.cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            response.setContentType("application/json");
+                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            response.getOutputStream().println("{\"success\":false,\"message\":\"Authentication required: " + authException.getMessage() + "\"}");
+                        })
+                        .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            response.setContentType("application/json");
+                            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                            response.getOutputStream().println("{\"success\":false,\"message\":\"Access Denied: Insufficient permissions\"}");
+                        })
+                )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/actuator/health", "/error").permitAll()
-                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/finance/invoices/*/payment", "/api/finance/invoices/*/refund")
-                        .hasAnyAuthority("ROLE_ADMIN", "ROLE_FINANCE_USER")
+                        .requestMatchers("/actuator/**", "/error").permitAll()
+                        .requestMatchers("/api/finance/**").hasAuthority("ROLE_FINANCE_USER")
                         .anyRequest().authenticated())
                 .build();
     }
@@ -75,11 +86,18 @@ public class SecurityConfig {
                 try {
                     Claims claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(header.substring(7)).getPayload();
                     String role = claims.get("role", String.class);
-                    var authorities = role == null ? List.<SimpleGrantedAuthority>of() : List.of(new SimpleGrantedAuthority(role));
+                    if (claims.getSubject() == null || claims.getSubject().isBlank()
+                            || claims.getIssuedAt() == null || claims.getExpiration() == null
+                            || !"ROLE_FINANCE_USER".equals(role)) {
+                        throw new IllegalArgumentException("Required JWT claims are missing or invalid");
+                    }
+                    var authorities = List.of(new SimpleGrantedAuthority(role));
                     var authentication = new UsernamePasswordAuthenticationToken(claims.getSubject(), null, authorities);
                     org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(authentication);
                 } catch (RuntimeException invalidToken) {
-                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid access token");
+                    response.setContentType("application/json");
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.getOutputStream().println("{\"success\":false,\"message\":\"Invalid access token\"}");
                     return;
                 }
             }

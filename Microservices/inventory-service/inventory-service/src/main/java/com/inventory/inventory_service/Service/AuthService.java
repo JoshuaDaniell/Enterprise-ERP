@@ -3,7 +3,7 @@ package com.inventory.inventory_service.Service;
 import com.inventory.inventory_service.Dto.AuthResponse;
 import com.inventory.inventory_service.Dto.LoginRequest;
 import com.inventory.inventory_service.Dto.RefreshTokenRequest;
-import com.inventory.inventory_service.Dto.RegisterRequest;
+import com.inventory.inventory_service.Dto.UserProvisioningRequest;
 import com.inventory.inventory_service.Dto.UserSummaryDto;
 import com.inventory.inventory_service.Entity.RefreshToken;
 import com.inventory.inventory_service.Entity.Role;
@@ -37,20 +37,24 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
 
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
-        if (userRepository.existsByUsername(request.getUsername())) {
-            throw new DuplicateResourceException("Username '" + request.getUsername() + "' is already taken");
+    public AuthResponse provisionUser(UserProvisioningRequest request) {
+        String username = request.getUsername().trim();
+        if (userRepository.existsByUsername(username)) {
+            throw new DuplicateResourceException("Username '" + username + "' is already taken");
         }
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new DuplicateResourceException("Email '" + request.getEmail() + "' is already registered");
+        String email = request.getEmail() != null && !request.getEmail().isBlank()
+                ? request.getEmail().trim().toLowerCase()
+                : username.toLowerCase() + "@enterprise-erp.com";
+
+        if (userRepository.existsByEmail(email)) {
+            throw new DuplicateResourceException("Email '" + email + "' is already registered");
         }
 
         User user = User.builder()
-                .username(request.getUsername().trim())
-                .email(request.getEmail().trim().toLowerCase())
+                .username(username)
+                .email(email)
                 .password(passwordEncoder.encode(request.getPassword()))
-                // Public self-registration must never grant privileged roles.
-                .role(Role.ROLE_VIEWER)
+                .role(request.getRole())
                 .enabled(true)
                 .build();
 
@@ -63,7 +67,7 @@ public class AuthService {
         String accessToken = jwtService.generateToken(extraClaims, savedUser);
         RefreshToken refreshToken = refreshTokenService.createRefreshToken(savedUser);
 
-        log.info("Registered new user '{}' with role '{}'", savedUser.getUsername(), savedUser.getRole());
+        log.info("Provisioned new user '{}' with role '{}'", savedUser.getUsername(), savedUser.getRole());
 
         return AuthResponse.builder()
                 .accessToken(accessToken)

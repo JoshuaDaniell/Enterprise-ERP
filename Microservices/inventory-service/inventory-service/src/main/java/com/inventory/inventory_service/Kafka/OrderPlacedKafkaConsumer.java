@@ -2,8 +2,14 @@ package com.inventory.inventory_service.Kafka;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.inventory.inventory_service.Dto.StockAdjustmentDto;
+import com.inventory.inventory_service.Dto.StockReservedEvent;
+import com.inventory.inventory_service.Dto.StockRejectedEvent;
+import com.inventory.inventory_service.Entity.OutboxEvent;
+import com.inventory.inventory_service.Entity.OutboxStatus;
 import com.inventory.inventory_service.Entity.ProcessedEvent;
+import com.inventory.inventory_service.Repository.OutboxEventRepository;
 import com.inventory.inventory_service.Repository.ProcessedEventRepository;
 import com.inventory.inventory_service.Repository.ProductRepository;
 import com.inventory.inventory_service.Service.ProductService;
@@ -12,8 +18,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -23,8 +32,9 @@ public class OrderPlacedKafkaConsumer {
     private final ProductRepository productRepository;
     private final ProductService productService;
     private final ProcessedEventRepository processedEventRepository;
-    private final InventoryKafkaPublisher kafkaPublisher;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final OutboxEventRepository outboxEventRepository;
+    private final OutboxPublisher outboxPublisher;
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     @KafkaListener(topics = "${application.kafka.topics.order-placed:order-placed-topic}", groupId = "${spring.kafka.consumer.group-id:inventory-group}")
     @Transactional
@@ -32,13 +42,13 @@ public class OrderPlacedKafkaConsumer {
         log.info("Received Kafka event on 'order-placed-topic': {}", message);
         try {
             JsonNode root = objectMapper.readTree(message);
-            // Defaulting to orderId or orderNumber if eventId is missing to ensure fallback idempotency
-            String eventId = root.path("eventId").asText(root.path("orderNumber").asText("UNKNOWN"));
+            String eventId = root.path("eventId").asText("");
             String orderNumber = root.path("orderNumber").asText("UNKNOWN");
 
-            if ("UNKNOWN".equals(eventId)) {
-                log.warn("Received event without eventId or orderNumber. Cannot process idempotently. Skipping.");
-                return;
+            if (!"ORDER_PLACED".equals(root.path("eventType").asText())
+                    || root.path("occurredAt").isMissingNode()
+                    || eventId.isBlank() || "UNKNOWN".equals(orderNumber)) {
+                throw new IllegalArgumentException("ORDER_PLACED must include eventId, eventType, occurredAt, and orderNumber");
             }
 
             if (processedEventRepository.existsByEventId(eventId)) {
@@ -97,13 +107,44 @@ public class OrderPlacedKafkaConsumer {
             }
 
             if (allSuccessful) {
-                kafkaPublisher.publishStockReserved(root);
+                String reservationEventId = UUID.randomUUID().toString();
+                StockReservedEvent event = objectMapper.treeToValue(root, StockReservedEvent.class);
+                event.setEventId(reservationEventId);
+                event.setEventType("STOCK_RESERVED");
+                event.setOccurredAt(Instant.now());
+
+                outboxEventRepository.save(OutboxEvent.builder()
+                        .eventId(reservationEventId)
+                        .eventType("STOCK_RESERVED")
+                        .aggregateType("ORDER")
+                        .aggregateId(orderNumber)
+                        .payload(objectMapper.writeValueAsString(event))
+                        .status(OutboxStatus.PENDING)
+                        .build());
+                log.info("Persisted STOCK_RESERVED outbox event for order '{}'", orderNumber);
             } else {
-                // Publish STOCK_REJECTED event
-                kafkaPublisher.publishStockRejected(orderNumber, rejectionReason != null ? rejectionReason : "Unknown error");
+                String rejectionEventId = UUID.randomUUID().toString();
+                StockRejectedEvent rejectionEvent = StockRejectedEvent.builder()
+                        .eventId(rejectionEventId)
+                        .eventType("STOCK_REJECTED")
+                        .occurredAt(Instant.now())
+                        .orderId(root.path("orderId").asLong(0))
+                        .orderNumber(orderNumber)
+                        .reason(rejectionReason != null ? rejectionReason : "Insufficient stock or invalid items")
+                        .build();
+
+                outboxEventRepository.save(OutboxEvent.builder()
+                        .eventId(rejectionEventId)
+                        .eventType("STOCK_REJECTED")
+                        .aggregateType("ORDER")
+                        .aggregateId(orderNumber)
+                        .payload(objectMapper.writeValueAsString(rejectionEvent))
+                        .status(OutboxStatus.PENDING)
+                        .build());
+                log.info("Persisted STOCK_REJECTED outbox event for order '{}': {}", orderNumber, rejectionReason);
             }
 
-            // Save processed event
+            // Save processed event in the same transaction
             processedEventRepository.save(ProcessedEvent.builder().eventId(eventId).build());
 
         } catch (Exception e) {

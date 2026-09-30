@@ -1,8 +1,9 @@
 package com.sales.sales_service.Kafka;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sales.sales_service.Dto.InventoryReservationResultEvent;
 import com.sales.sales_service.Entity.OrderStatus;
+import com.sales.sales_service.Repository.ProcessedEventRepository;
 import com.sales.sales_service.Service.OrderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Component;
 public class InventoryReservationConsumer {
 
     private final OrderService orderService;
+    private final ProcessedEventRepository processedEventRepository;
     private final ObjectMapper mapper;
 
     @KafkaListener(
@@ -22,7 +24,7 @@ public class InventoryReservationConsumer {
             groupId = "${spring.kafka.consumer.group-id:sales-group}"
     )
     public void consumeReserved(String message) {
-        update(message, OrderStatus.STOCK_RESERVED, "Inventory reserved stock for this order");
+        update(message, "STOCK_RESERVED", OrderStatus.CONFIRMED, "Stock reserved by Inventory. Order automatically CONFIRMED.");
     }
 
     @KafkaListener(
@@ -30,19 +32,34 @@ public class InventoryReservationConsumer {
             groupId = "${spring.kafka.consumer.group-id:sales-group}"
     )
     public void consumeRejected(String message) {
-        update(message, OrderStatus.REJECTED, "Inventory rejected the order because stock is unavailable");
+        update(message, "STOCK_REJECTED", OrderStatus.REJECTED, "Stock unavailable in Inventory. Order REJECTED.");
     }
 
-    private void update(String message, OrderStatus status, String remarks) {
+    private void update(String message, String expectedEventType, OrderStatus status, String remarks) {
         try {
-            JsonNode event = mapper.readTree(message);
-            String orderNumber = event.path("orderNumber").asText(event.path("orderId").asText(""));
-            if (orderNumber.isBlank()) {
-                log.warn("Ignoring inventory event without order number: {}", message);
+            InventoryReservationResultEvent event = mapper.readValue(message, InventoryReservationResultEvent.class);
+            String eventId = event.getEventId();
+            if (eventId == null || eventId.isBlank() || !expectedEventType.equals(event.getEventType())
+                    || event.getOccurredAt() == null) {
+                throw new IllegalArgumentException("Malformed " + expectedEventType + " event contract");
+            }
+            if (processedEventRepository.existsByEventId(eventId)) {
+                log.info("Inventory event '{}' already processed. Skipping duplicate.", eventId);
                 return;
             }
-            orderService.updateStatusFromInventory(orderNumber, status, remarks);
+
+            String orderNumber = event.getOrderNumber() != null ? event.getOrderNumber()
+                    : event.getOrderId() != null ? event.getOrderId().toString() : "";
+            if (orderNumber.isBlank()) {
+                throw new IllegalArgumentException("Inventory event is missing orderNumber");
+            }
+
+            String reason = event.getReason() != null ? event.getReason() : "";
+            String detailedRemarks = !reason.isBlank() ? remarks + " Reason: " + reason : remarks;
+
+            orderService.updateStatusFromInventory(orderNumber, status, detailedRemarks, eventId);
         } catch (Exception ex) {
+            log.error("Unable to process inventory reservation event: {}", ex.getMessage(), ex);
             throw new IllegalStateException("Unable to process inventory reservation event", ex);
         }
     }

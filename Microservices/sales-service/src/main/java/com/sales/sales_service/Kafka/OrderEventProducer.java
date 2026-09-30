@@ -1,12 +1,18 @@
 package com.sales.sales_service.Kafka;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.sales.sales_service.Dto.OrderPlacedEvent;
+import com.sales.sales_service.Dto.OrderStatusChangedEvent;
+import com.sales.sales_service.Entity.OutboxEvent;
+import com.sales.sales_service.Entity.OutboxStatus;
+import com.sales.sales_service.Repository.OutboxEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
-import java.util.Map;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
 import java.util.UUID;
 
 @Service
@@ -14,42 +20,57 @@ import java.util.UUID;
 @Slf4j
 public class OrderEventProducer {
 
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final OutboxEventRepository outboxEventRepository;
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
-    @Value("${application.kafka.topics.order-placed:order-placed-topic}")
-    private String orderPlacedTopic;
-
+    @Transactional
     public void publishOrderPlacedEvent(OrderPlacedEvent event) {
-        log.info("Publishing ORDER_PLACED event for orderNumber '{}' to topic '{}'", event.getOrderNumber(), orderPlacedTopic);
+        log.info("Persisting ORDER_PLACED outbox event for orderNumber '{}'", event.getOrderNumber());
         try {
-            kafkaTemplate.send(orderPlacedTopic, event.getOrderNumber(), event)
-                    .whenComplete((result, ex) -> {
-                        if (ex == null) {
-                            log.info("Successfully published ORDER_PLACED event for orderNumber '{}' at offset {}",
-                                    event.getOrderNumber(),
-                                    result.getRecordMetadata().offset());
-                        } else {
-                            log.error("Failed to publish ORDER_PLACED event for orderNumber '{}': {}",
-                                    event.getOrderNumber(), ex.getMessage());
-                        }
-                    });
+            String payload = objectMapper.writeValueAsString(event);
+            OutboxEvent outboxEvent = OutboxEvent.builder()
+                    .eventId(event.getEventId())
+                    .eventType("ORDER_PLACED")
+                    .aggregateType("ORDER")
+                    .aggregateId(event.getOrderNumber())
+                    .payload(payload)
+                    .status(OutboxStatus.PENDING)
+                    .build();
+            outboxEventRepository.save(outboxEvent);
+            log.info("Persisted ORDER_PLACED outbox event '{}' for orderNumber '{}'", event.getEventId(), event.getOrderNumber());
         } catch (Exception e) {
-            log.error("Exception while sending ORDER_PLACED event: {}", e.getMessage(), e);
+            log.error("Failed to persist ORDER_PLACED outbox event: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to persist outbox event", e);
         }
     }
 
-    @Value("${application.kafka.topics.order-status-changed:order-status-changed-topic}")
-    private String orderStatusChangedTopic;
-
+    @Transactional
     public void publishOrderStatusChanged(String orderNumber, String status) {
-        Map<String, Object> event = Map.of(
-                "eventId", UUID.randomUUID().toString(),
-                "eventType", "ORDER_STATUS_CHANGED",
-                "orderNumber", orderNumber,
-                "status", status
-        );
-        kafkaTemplate.send(orderStatusChangedTopic, orderNumber, event);
-        log.info("Published ORDER_STATUS_CHANGED for orderNumber '{}' with status '{}'", orderNumber, status);
-    }
+        String eventId = UUID.randomUUID().toString();
+        OrderStatusChangedEvent event = OrderStatusChangedEvent.builder()
+                .eventId(eventId)
+                .eventType("ORDER_STATUS_CHANGED")
+                .occurredAt(Instant.now())
+                .orderNumber(orderNumber)
+                .status(status)
+                .build();
 
+        try {
+            String payload = objectMapper.writeValueAsString(event);
+            OutboxEvent outboxEvent = OutboxEvent.builder()
+                    .eventId(eventId)
+                    .eventType("ORDER_STATUS_CHANGED")
+                    .aggregateType("ORDER")
+                    .aggregateId(orderNumber)
+                    .payload(payload)
+                    .status(OutboxStatus.PENDING)
+                    .build();
+            outboxEventRepository.save(outboxEvent);
+            log.info("Persisted ORDER_STATUS_CHANGED outbox event '{}' for orderNumber '{}' with status '{}'",
+                    eventId, orderNumber, status);
+        } catch (Exception e) {
+            log.error("Failed to persist ORDER_STATUS_CHANGED outbox event: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to persist outbox event", e);
+        }
+    }
 }

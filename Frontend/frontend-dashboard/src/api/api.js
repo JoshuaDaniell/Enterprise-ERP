@@ -39,7 +39,7 @@ api.interceptors.response.use(
     async (error) => {
         const originalRequest = error.config;
 
-        // Bypass refresh on auth endpoints (login/register/refresh/logout) to prevent infinite loops
+        // Bypass refresh on auth endpoints (login/refresh/logout) to prevent infinite loops
         if (originalRequest?.url?.includes('/auth/')) {
             return Promise.reject(error);
         }

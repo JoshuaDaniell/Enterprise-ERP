@@ -5,11 +5,6 @@ export const loginUser = async (username, password) => {
     return response.data?.data || response.data;
 };
 
-export const registerUser = async (userData) => {
-    const response = await api.post('/auth/register', userData);
-    return response.data?.data || response.data;
-};
-
 export const refreshAccessToken = async (refreshToken) => {
     const response = await api.post('/auth/refresh', { refreshToken });
     return response.data?.data || response.data;

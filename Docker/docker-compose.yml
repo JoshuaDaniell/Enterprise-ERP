@@ -6,12 +6,13 @@ services:
     ports:
       - "3307:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-inventory123}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in Docker/.env}
       MYSQL_DATABASE: erp_inventory_db
-      MYSQL_USER: ${MYSQL_USER:-inventory_user}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-inventory123}
+      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER in Docker/.env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in Docker/.env}
     volumes:
       - mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
     networks:
       - erp-network
     healthcheck:
@@ -43,11 +44,12 @@ services:
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/erp_inventory_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-inventory_user}
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-inventory123}
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:?Set MYSQL_USER in Docker/.env}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in Docker/.env}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      APPLICATION_SECURITY_JWT_SECRET_KEY: ${JWT_SECRET_KEY:-replace-with-a-64-character-production-secret}
+      APPLICATION_SECURITY_JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY to a secret with at least 32 bytes}
+      USER_PROVISIONING_KEY: ${USER_PROVISIONING_KEY:?Set USER_PROVISIONING_KEY to a strong provisioning secret}
       SPRING_PROFILES_ACTIVE: docker
     ports:
       - "18082:8082"
@@ -67,11 +69,11 @@ services:
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/erp_sales_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-inventory_user}
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-inventory123}
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:?Set MYSQL_USER in Docker/.env}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in Docker/.env}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      APPLICATION_SECURITY_JWT_SECRET_KEY: ${JWT_SECRET_KEY:-replace-with-a-64-character-production-secret}
+      APPLICATION_SECURITY_JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY to a secret with at least 32 bytes}
     ports:
       - "18081:8081"
     depends_on:
@@ -122,11 +124,11 @@ services:
     restart: unless-stopped
     environment:
       DB_URL: jdbc:mysql://mysql:3306/erp_finance_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-      DB_USERNAME: ${MYSQL_USER:-inventory_user}
-      DB_PASSWORD: ${MYSQL_PASSWORD:-inventory123}
+      DB_USERNAME: ${MYSQL_USER:?Set MYSQL_USER in Docker/.env}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in Docker/.env}
       SPRING_DATA_REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      APPLICATION_SECURITY_JWT_SECRET_KEY: ${JWT_SECRET_KEY:-replace-with-a-64-character-production-secret}
+      APPLICATION_SECURITY_JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY to a secret with at least 32 bytes}
     ports:
       - "18083:8083"
     depends_on:

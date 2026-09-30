@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../../auth/context/AuthContext';
 
 const ProductForm = ({ onAddProduct }) => {
-    const { canCreateProduct, quickLoginAs, user } = useAuth();
+    const { canCreateProduct, user } = useAuth();
     const [sku, setSku] = useState('');
     const [name, setName] = useState('');
     const [price, setPrice] = useState('');
@@ -47,14 +47,7 @@ const ProductForm = ({ onAddProduct }) => {
 
             {!canCreateProduct && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 space-y-1.5">
-                    <p>Current role (<strong>{user?.role?.replace('ROLE_', '') || 'ANONYMOUS'}</strong>) cannot create products. Required: <strong>ADMIN</strong> or <strong>WAREHOUSE_MANAGER</strong>.</p>
-                    <button
-                        type="button"
-                        onClick={() => quickLoginAs('ROLE_ADMIN')}
-                        className="text-blue-700 font-bold hover:underline block"
-                    >
-                        ⚡ Switch to Admin to Enable Form
-                    </button>
+                    <p>Current role (<strong>{user?.role?.replace('ROLE_', '') || 'ANONYMOUS'}</strong>) cannot create products. Sign in with an inventory account to manage stock.</p>
                 </div>
             )}
             

@@ -1,69 +1,45 @@
-import axios from 'axios';
+import api from '../../../api/api';
 
-const salesApi = axios.create({
-    baseURL: import.meta.env.VITE_SALES_API_URL || '/api/sales',
-    headers: {
-        'Content-Type': 'application/json'
-    }
-});
-
-salesApi.interceptors.request.use((config) => {
-    const token = localStorage.getItem('erp_access_token');
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
+const salesApiBaseUrl = import.meta.env.VITE_SALES_API_URL || '/api/sales';
 
 // Orders API
 export const getAllOrders = async () => {
-    try {
-        const response = await salesApi.get('/orders');
-        const orders = response.data?.data || response.data || [];
-        localStorage.setItem('erp_cache_orders', JSON.stringify(orders));
-        return orders;
-    } catch (error) {
-        const cached = localStorage.getItem('erp_cache_orders');
-        if (cached) return JSON.parse(cached);
-        throw error;
-    }
+    const response = await api.get('/orders', { baseURL: salesApiBaseUrl });
+    return response.data?.data || response.data || [];
 };
 
 export const getOrderById = async (id) => {
-    const response = await salesApi.get(`/orders/${id}`);
+    const response = await api.get(`/orders/${id}`, { baseURL: salesApiBaseUrl });
     return response.data?.data || response.data;
 };
 
 export const createOrder = async (orderData) => {
-    const response = await salesApi.post('/orders', orderData);
-    return response.data?.data || response.data;
-};
-
-export const updateOrderStatus = async (id, status, remarks = '') => {
-    const response = await salesApi.patch(`/orders/${id}/status`, { status, remarks });
+    const response = await api.post('/orders', orderData, { baseURL: salesApiBaseUrl });
     return response.data?.data || response.data;
 };
 
 export const cancelOrder = async (id, reason = 'Cancelled by user') => {
-    const response = await salesApi.post(`/orders/${id}/cancel?reason=${encodeURIComponent(reason)}`);
+    const response = await api.post(`/orders/${id}/cancel?reason=${encodeURIComponent(reason)}`, null, {
+        baseURL: salesApiBaseUrl
+    });
     return response.data?.data || response.data;
 };
 
 // Customers API
 export const getAllCustomers = async () => {
-    try {
-        const response = await salesApi.get('/customers');
-        const customers = response.data?.data || response.data || [];
-        localStorage.setItem('erp_cache_customers', JSON.stringify(customers));
-        return customers;
-    } catch (error) {
-        const cached = localStorage.getItem('erp_cache_customers');
-        if (cached) return JSON.parse(cached);
-        throw error;
-    }
+    const response = await api.get('/customers', { baseURL: salesApiBaseUrl });
+    return response.data?.data || response.data || [];
+};
+
+// This read-only inventory catalog endpoint is available to sales users.
+// Stock reservation still happens asynchronously through Kafka.
+export const getOrderableProducts = async () => {
+    const inventoryApiBaseUrl = import.meta.env.VITE_INVENTORY_API_URL || '/api/inventory';
+    const response = await api.get('/catalog/products', { baseURL: inventoryApiBaseUrl });
+    return response.data?.data || response.data || [];
 };
 
 export const createCustomer = async (customerData) => {
-    const response = await salesApi.post('/customers', customerData);
+    const response = await api.post('/customers', customerData, { baseURL: salesApiBaseUrl });
     return response.data?.data || response.data;
 };

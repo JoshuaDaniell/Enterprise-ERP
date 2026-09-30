@@ -1,28 +1,13 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { loginUser, registerUser, logoutUser } from '../services/authService';
+import { getCurrentUserProfile, loginUser, logoutUser, refreshAccessToken } from '../services/authService';
 
 const AuthContext = createContext(null);
 
-export const DEMO_ACCOUNTS = [
-    { username: 'admin', role: 'ROLE_ADMIN', label: 'Admin (Full Access)', desc: 'Create, Read, Update, Delete' },
-    { username: 'manager', role: 'ROLE_WAREHOUSE_MANAGER', label: 'Warehouse Manager', desc: 'Create, Read, Update Stock' },
-    { username: 'sales', role: 'ROLE_SALES_USER', label: 'Sales Rep', desc: 'Read Products' },
-    { username: 'finance', role: 'ROLE_FINANCE_USER', label: 'Finance User', desc: 'Invoices and payments' },
-    { username: 'viewer', role: 'ROLE_VIEWER', label: 'Auditor / Viewer', desc: 'Read Only' },
-];
-
 export const AuthProvider = ({ children }) => {
-    const [user, setUser] = useState(() => {
-        try {
-            const saved = localStorage.getItem('erp_user');
-            return saved ? JSON.parse(saved) : null;
-        } catch {
-            return null;
-        }
-    });
+    const [user, setUser] = useState(null);
 
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
     const [authError, setAuthError] = useState(null);
 
     const saveAuthData = (data) => {
@@ -50,23 +35,7 @@ export const AuthProvider = ({ children }) => {
             saveAuthData(data);
             return data;
         } catch (err) {
-            const msg = err.response?.data?.message || err.message || 'Login failed';
-            setAuthError(msg);
-            throw new Error(msg, { cause: err });
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const register = async (userData) => {
-        setIsLoading(true);
-        setAuthError(null);
-        try {
-            const data = await registerUser(userData);
-            saveAuthData(data);
-            return data;
-        } catch (err) {
-            const msg = err.response?.data?.message || err.message || 'Registration failed';
+            const msg = err.response?.data?.message || err.message || 'Invalid username or password';
             setAuthError(msg);
             throw new Error(msg, { cause: err });
         } finally {
@@ -77,7 +46,11 @@ export const AuthProvider = ({ children }) => {
     const logout = async () => {
         const storedRefreshToken = localStorage.getItem('erp_refresh_token');
         if (storedRefreshToken) {
-            await logoutUser(storedRefreshToken);
+            try {
+                await logoutUser(storedRefreshToken);
+            } catch (err) {
+                console.warn('Logout notification error:', err);
+            }
         }
         localStorage.removeItem('erp_access_token');
         localStorage.removeItem('erp_refresh_token');
@@ -85,10 +58,39 @@ export const AuthProvider = ({ children }) => {
         setUser(null);
     };
 
-    const quickLoginAs = async (roleName) => {
-        const account = DEMO_ACCOUNTS.find(a => a.role === roleName) || DEMO_ACCOUNTS[0];
-        return await login(account.username, `${account.username}123`);
-    };
+    useEffect(() => {
+        localStorage.removeItem('erp_cache_orders');
+        localStorage.removeItem('erp_cache_customers');
+        localStorage.removeItem('erp_cache_invoices');
+        localStorage.removeItem('erp_cache_finance_dashboard');
+        const restoreSession = async () => {
+            try {
+                if (!localStorage.getItem('erp_access_token')) throw new Error('No saved access token');
+                let profile;
+                try {
+                    profile = await getCurrentUserProfile();
+                } catch (error) {
+                    const refreshToken = localStorage.getItem('erp_refresh_token');
+                    if (!refreshToken) throw error;
+                    const refreshed = await refreshAccessToken(refreshToken);
+                    localStorage.setItem('erp_access_token', refreshed.accessToken);
+                    localStorage.setItem('erp_refresh_token', refreshed.refreshToken);
+                    profile = await getCurrentUserProfile();
+                }
+                const userInfo = { id: profile.id, username: profile.username, email: profile.email, role: profile.role };
+                localStorage.setItem('erp_user', JSON.stringify(userInfo));
+                setUser(userInfo);
+            } catch {
+                localStorage.removeItem('erp_access_token');
+                localStorage.removeItem('erp_refresh_token');
+                localStorage.removeItem('erp_user');
+                setUser(null);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        restoreSession();
+    }, []);
 
     useEffect(() => {
         const handleAuthExpired = () => {
@@ -104,9 +106,7 @@ export const AuthProvider = ({ children }) => {
         return allowedRoles.includes(user.role);
     }, [user]);
 
-    const canCreateProduct = hasRole('ROLE_ADMIN', 'ROLE_WAREHOUSE_MANAGER');
-    const canDeleteProduct = hasRole('ROLE_ADMIN');
-    const canAdjustStock = hasRole('ROLE_ADMIN', 'ROLE_WAREHOUSE_MANAGER');
+    const canManageInventory = hasRole('ROLE_INVENTORY_USER');
 
     return (
         <AuthContext.Provider
@@ -116,13 +116,11 @@ export const AuthProvider = ({ children }) => {
                 isLoading,
                 authError,
                 login,
-                register,
                 logout,
-                quickLoginAs,
                 hasRole,
-                canCreateProduct,
-                canDeleteProduct,
-                canAdjustStock
+                canCreateProduct: canManageInventory,
+                canAdjustStock: canManageInventory,
+                canDeleteProduct: canManageInventory
             }}
         >
             {children}

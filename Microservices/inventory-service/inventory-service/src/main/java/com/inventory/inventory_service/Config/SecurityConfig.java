@@ -91,16 +91,16 @@ public class SecurityConfig {
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         // Public Auth Endpoints
-                        .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/api/auth/logout").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/auth/provision").permitAll()
                         .requestMatchers("/actuator/**", "/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
 
-                        // Role-Based Product Access Rules
-                        .requestMatchers(HttpMethod.GET, "/api/products/**").authenticated()
-                        .requestMatchers(HttpMethod.POST, "/api/products/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_WAREHOUSE_MANAGER")
-                        .requestMatchers(HttpMethod.PUT, "/api/products/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_WAREHOUSE_MANAGER")
-                        .requestMatchers(HttpMethod.PATCH, "/api/products/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_WAREHOUSE_MANAGER")
-                        .requestMatchers(HttpMethod.DELETE, "/api/products/**").hasAuthority("ROLE_ADMIN")
+                        // Sales can read the orderable catalog; all inventory mutations remain inventory-only.
+                        .requestMatchers(HttpMethod.GET, "/api/catalog/products")
+                        .hasAnyAuthority("ROLE_INVENTORY_USER", "ROLE_SALES_USER")
+
+                        // Role-Based Inventory Access Rules: ONLY ROLE_INVENTORY_USER
+                        .requestMatchers("/api/products/**").hasAuthority("ROLE_INVENTORY_USER")
 
                         .anyRequest().authenticated()
                 );

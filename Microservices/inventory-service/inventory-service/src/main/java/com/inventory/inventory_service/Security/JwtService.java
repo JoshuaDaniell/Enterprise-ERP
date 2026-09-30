@@ -18,8 +18,7 @@ import java.util.function.Function;
 @Service
 public class JwtService {
 
-    // 256-bit secure secret key
-    @Value("${application.security.jwt.secret-key:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}")
+    @Value("${application.security.jwt.secret-key}")
     private String secretKey;
 
     @Getter
@@ -50,8 +49,15 @@ public class JwtService {
     }
 
     public boolean isTokenValid(String token, UserDetails userDetails) {
-        final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername())) && !isTokenExpired(token);
+        Claims claims = extractAllClaims(token);
+        String role = claims.get("role", String.class);
+        return claims.getSubject() != null
+                && claims.getSubject().equals(userDetails.getUsername())
+                && claims.getIssuedAt() != null
+                && claims.getExpiration() != null
+                && role != null
+                && userDetails.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals(role))
+                && !claims.getExpiration().before(new Date());
     }
 
     private boolean isTokenExpired(String token) {

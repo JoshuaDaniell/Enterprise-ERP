@@ -48,7 +48,7 @@ const FinanceDashboard = () => {
         URL.revokeObjectURL(url);
     };
 
-    const canManagePayments = hasRole('ROLE_ADMIN', 'ROLE_FINANCE_USER');
+    const canManagePayments = hasRole('ROLE_FINANCE_USER');
     const revenue = Number(metrics.totalRevenue ?? metrics.revenue ?? 0);
     const outstanding = Number(metrics.outstandingAmount ?? metrics.outstanding ?? 0);
 

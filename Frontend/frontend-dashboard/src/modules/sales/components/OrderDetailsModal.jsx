@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { updateOrderStatus, cancelOrder } from '../services/salesService';
+import { cancelOrder } from '../services/salesService';
 
 const STATUS_COLORS = {
     PENDING: 'bg-amber-100 text-amber-800 border-amber-300',
@@ -15,19 +15,6 @@ const OrderDetailsModal = ({ order, isOpen, onClose, onOrderUpdated }) => {
 
     if (!isOpen || !order) return null;
 
-    const handleStatusChange = async (newStatus) => {
-        setIsUpdating(true);
-        try {
-            const updated = await updateOrderStatus(order.id, newStatus, remarks || `Status changed to ${newStatus}`);
-            if (onOrderUpdated) onOrderUpdated(updated);
-            setRemarks('');
-        } catch (err) {
-            alert(err.response?.data?.message || err.message || 'Status update failed');
-        } finally {
-            setIsUpdating(false);
-        }
-    };
-
     const handleCancel = async () => {
         const reason = prompt("Enter cancellation reason:", "Order cancelled by customer request");
         if (!reason) return;
@@ -42,8 +29,6 @@ const OrderDetailsModal = ({ order, isOpen, onClose, onOrderUpdated }) => {
             setIsUpdating(false);
         }
     };
-
-    const isFinalState = order.status === 'CONFIRMED' || order.status === 'CANCELLED';
 
     return (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
@@ -113,59 +98,15 @@ const OrderDetailsModal = ({ order, isOpen, onClose, onOrderUpdated }) => {
                     </table>
                 </div>
 
-                {/* Status Transitions */}
-                {!isFinalState && (
-                    <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-lg mb-4 space-y-2">
-                        <div className="flex justify-between items-center">
-                            <span className="text-xs font-bold text-blue-900 uppercase">Update Status Transition</span>
-                            <span className="text-[11px] text-blue-700">Current: <strong>{order.status}</strong></span>
-                        </div>
-                        <input
-                            type="text"
-                            value={remarks}
-                            onChange={(e) => setRemarks(e.target.value)}
-                            placeholder="Optional transition remarks / notes..."
-                            className="w-full p-2 border border-blue-200 rounded text-xs bg-white focus:outline-none"
-                        />
-                        <div className="flex flex-wrap gap-2 pt-1">
-                            {order.status === 'PENDING' && (
-                                <button
-                                    onClick={() => handleStatusChange('STOCK_RESERVED')}
-                                    disabled={isUpdating}
-                                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded transition shadow"
-                                >
-                                    ✓ Reserve Stock
-                                </button>
-                            )}
-                            {(order.status === 'PENDING' || order.status === 'STOCK_RESERVED') && (
-                                <button
-                                    onClick={() => handleStatusChange('CONFIRMED')}
-                                    disabled={isUpdating}
-                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded transition shadow"
-                                >
-                                    ✓ Confirm Order
-                                </button>
-                            )}
-                            {order.status === 'PENDING' && (
-                                <button
-                                    onClick={() => handleStatusChange('REJECTED')}
-                                    disabled={isUpdating}
-                                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs rounded transition shadow"
-                                >
-                                    ✕ Reject Order
-                                </button>
-                            )}
-                            <button
-                                onClick={handleCancel}
-                                disabled={isUpdating}
-                                className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold text-xs rounded transition"
-                            >
-                                ✕ Cancel Order
-                            </button>
-                        </div>
+                {order.status === 'PENDING' && (
+                    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                        <p className="mb-2">Waiting for Inventory to reserve the requested stock.</p>
+                        <button onClick={handleCancel} disabled={isUpdating}
+                            className="rounded border border-gray-300 bg-white px-3 py-1.5 font-semibold text-gray-700 disabled:opacity-50">
+                            Cancel Pending Order
+                        </button>
                     </div>
                 )}
-
                 {/* Status History Timeline */}
                 <div>
                     <h4 className="text-xs font-bold text-gray-700 uppercase mb-2">Order History & Audit Trail</h4>

@@ -1,6 +1,7 @@
 package com.sales.sales_service.Config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.sales.sales_service.Dto.ApiResponse;
 import com.sales.sales_service.Security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +30,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -63,11 +64,7 @@ public class SecurityConfig {
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**", "/error").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/customers/**", "/api/orders/**").authenticated()
-                        .requestMatchers(HttpMethod.POST, "/api/customers/**", "/api/orders/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_SALES_USER", "ROLE_WAREHOUSE_MANAGER")
-                        .requestMatchers(HttpMethod.PUT, "/api/customers/**", "/api/orders/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_SALES_USER", "ROLE_WAREHOUSE_MANAGER")
-                        .requestMatchers(HttpMethod.PATCH, "/api/orders/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_SALES_USER", "ROLE_WAREHOUSE_MANAGER")
-                        .requestMatchers(HttpMethod.DELETE, "/api/customers/**", "/api/orders/**").hasAuthority("ROLE_ADMIN")
+                        .requestMatchers("/api/customers/**", "/api/orders/**").hasAuthority("ROLE_SALES_USER")
                         .anyRequest().authenticated()
                 );
 

@@ -4,7 +4,6 @@ import com.inventory.inventory_service.Dto.ApiResponse;
 import com.inventory.inventory_service.Dto.AuthResponse;
 import com.inventory.inventory_service.Dto.LoginRequest;
 import com.inventory.inventory_service.Dto.RefreshTokenRequest;
-import com.inventory.inventory_service.Dto.RegisterRequest;
 import com.inventory.inventory_service.Dto.UserSummaryDto;
 import com.inventory.inventory_service.Service.AuthService;
 import jakarta.validation.Valid;
@@ -12,6 +11,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+
+import com.inventory.inventory_service.Dto.UserProvisioningRequest;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -21,11 +28,23 @@ public class AuthController {
 
     private final AuthService authService;
 
-    @PostMapping("/register")
-    public ResponseEntity<ApiResponse<AuthResponse>> register(@Valid @RequestBody RegisterRequest request) {
-        AuthResponse response = authService.register(request);
+    @Value("${application.security.provisioning-key:}")
+    private String provisioningKey;
+
+    @PostMapping("/provision")
+    public ResponseEntity<ApiResponse<AuthResponse>> provision(
+            @RequestHeader(value = "X-Provisioning-Key", required = false) String suppliedKey,
+            @Valid @RequestBody UserProvisioningRequest request) {
+        if (provisioningKey == null || provisioningKey.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "User provisioning is not configured");
+        }
+        if (suppliedKey == null || !MessageDigest.isEqual(
+                provisioningKey.getBytes(StandardCharsets.UTF_8), suppliedKey.getBytes(StandardCharsets.UTF_8))) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid provisioning key");
+        }
+        AuthResponse response = authService.provisionUser(request);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("User registered successfully", response));
+                .body(ApiResponse.success("User provisioned successfully", response));
     }
 
     @PostMapping("/login")

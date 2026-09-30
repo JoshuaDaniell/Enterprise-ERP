@@ -14,7 +14,9 @@ import java.util.List;
 @Builder
 public class OrderPlacedEvent implements Serializable {
 
+    private String eventId;
     private String eventType; // "ORDER_PLACED"
+    private Instant occurredAt;
     private Long orderId;
     private String orderNumber;
     private Long customerId;
@@ -22,7 +24,6 @@ public class OrderPlacedEvent implements Serializable {
     private String customerEmail;
     private BigDecimal totalAmount;
     private List<OrderItemEventDto> items;
-    private Instant placedAt;
 
     @Getter
     @Setter

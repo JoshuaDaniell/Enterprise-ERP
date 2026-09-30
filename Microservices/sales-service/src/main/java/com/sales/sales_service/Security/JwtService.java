@@ -18,7 +18,7 @@ import java.util.function.Function;
 @Service
 public class JwtService {
 
-    @Value("${application.security.jwt.secret-key:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}")
+    @Value("${application.security.jwt.secret-key}")
     private String secretKey;
 
     public String extractUsername(String token) {
@@ -45,7 +45,12 @@ public class JwtService {
 
     public boolean isTokenValid(String token) {
         try {
-            return !isTokenExpired(token);
+            Claims claims = extractAllClaims(token);
+            String role = claims.get("role", String.class);
+            return claims.getSubject() != null && !claims.getSubject().isBlank()
+                    && claims.getIssuedAt() != null && claims.getExpiration() != null
+                    && List.of("ROLE_INVENTORY_USER", "ROLE_SALES_USER", "ROLE_FINANCE_USER").contains(role)
+                    && !claims.getExpiration().before(new Date());
         } catch (Exception e) {
             return false;
         }

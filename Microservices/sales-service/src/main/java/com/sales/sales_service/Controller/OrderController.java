@@ -46,7 +46,7 @@ public class OrderController {
         String currentUsername = getCurrentUsername();
         OrderResponseDto order = orderService.createOrder(request, currentUsername);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Order placed successfully and published to Kafka", order));
+                .body(ApiResponse.success("Order created successfully in PENDING status. Awaiting inventory reservation.", order));
     }
 
     @PatchMapping("/{id}/status")
