@@ -1,5 +1,6 @@
 package com.sales.sales_service.Kafka;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sales.sales_service.Entity.OutboxEvent;
 import com.sales.sales_service.Entity.OutboxStatus;
 import com.sales.sales_service.Repository.OutboxEventRepository;
@@ -22,6 +23,7 @@ public class OutboxPublisher {
 
     private final OutboxEventRepository outboxEventRepository;
     private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final ObjectMapper objectMapper;
 
     @Value("${application.kafka.topics.order-placed:order-placed-topic}")
     private String orderPlacedTopic;
@@ -45,7 +47,10 @@ public class OutboxPublisher {
 
             try {
                 // Key = aggregateId (orderNumber) for partition ordering
-                kafkaTemplate.send(topic, event.getAggregateId(), event.getPayload()).get(5, TimeUnit.SECONDS);
+                // The outbox stores JSON text. Send it as a JSON tree so JsonSerializer writes
+                // the event object itself instead of wrapping the entire document in a JSON string.
+                kafkaTemplate.send(topic, event.getAggregateId(), objectMapper.readTree(event.getPayload()))
+                        .get(5, TimeUnit.SECONDS);
                 event.setStatus(OutboxStatus.PUBLISHED);
                 event.setPublishedAt(Instant.now());
                 outboxEventRepository.save(event);
