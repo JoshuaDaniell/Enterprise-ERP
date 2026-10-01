@@ -4,24 +4,23 @@ Star Enterprises ERP is a role-based business dashboard for inventory, sales, cu
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    U[Browser] --> N[Nginx: static frontend and reverse proxy]
-    N -->|/api/inventory/*| I[Inventory API :8082]
-    N -->|/api/sales/*| S[Sales API :8081]
-    N -->|/api/finance/*| F[Finance API :8083]
-    I --> IDB[(MySQL erp_inventory_db)]
-    S --> SDB[(MySQL erp_sales_db)]
-    F --> FDB[(MySQL erp_finance_db)]
-    I -. cache .-> R[(Redis)]
-    S -. cache .-> R
-    F -. cache .-> R
-    S -->|ORDER_PLACED| K[Kafka]
-    K --> I
-    I -->|STOCK_RESERVED / STOCK_REJECTED| K
-    K --> S
-    S -->|ORDER_STATUS_CHANGED| K
-    K --> F
+```text
+USER'S BROWSER
+    |
+    v
+React dashboard (served by Nginx)
+    |
+    +-- /api/inventory/* --> Inventory service :8082
+    +-- /api/sales/*     --> Sales service     :8081
+    +-- /api/finance/*   --> Finance service   :8083
+
+Each service --> its own MySQL database
+Each service --> its own named caches in the shared Redis server
+
+Asynchronous order workflow:
+Sales -- ORDER_PLACED --> Kafka --> Inventory
+Sales <-- STOCK_RESERVED / STOCK_REJECTED -- Kafka <-- Inventory
+Sales -- ORDER_STATUS_CHANGED --> Kafka --> Finance
 ```
 
 Nginx serves the production frontend and routes API paths to the backend containers. It is the reverse proxy in this deployment; there is no separate Spring API Gateway service. Each backend also validates JWTs and enforces authorization itself. Compose publishes backend ports for local access, so Nginx is not the only route to those APIs.
