@@ -59,7 +59,6 @@ public class ProductService {
     @Transactional(readOnly = true)
     public List<ProductResponseDto> getOrderableProducts() {
         return productRepository.findAll().stream()
-                .filter(product -> product.getQuantity() != null && product.getQuantity() > 0)
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }

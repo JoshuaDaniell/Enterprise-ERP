@@ -220,6 +220,14 @@ const SalesDashboard = () => {
                                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${STATUS_COLORS[order.status] || 'bg-gray-100'}`}>
                                             {order.status}
                                         </span>
+                                        {order.status === 'REJECTED' && (() => {
+                                            const rejection = [...(order.statusHistory || [])].reverse().find(history => history.toStatus === 'REJECTED');
+                                            return rejection?.remarks ? (
+                                                <div className="mt-1 max-w-[220px] text-[10px] leading-snug text-rose-700" role="status">
+                                                    {rejection.remarks}
+                                                </div>
+                                            ) : null;
+                                        })()}
                                     </td>
                                     <td className="p-3.5 text-right">
                                         <button

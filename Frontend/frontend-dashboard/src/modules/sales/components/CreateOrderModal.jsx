@@ -100,10 +100,7 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
     const handleQuantityChange = (index, qty) => {
         setItems(prev => {
             const next = [...prev];
-            const requestedQuantity = Math.max(1, parseInt(qty, 10) || 1);
-            next[index].quantity = next[index].availableQuantity
-                ? Math.min(requestedQuantity, next[index].availableQuantity)
-                : requestedQuantity;
+            next[index].quantity = qty === '' ? '' : Math.max(1, parseInt(qty, 10) || 1);
             return next;
         });
     };
@@ -125,8 +122,8 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
             alert("Please select a customer");
             return;
         }
-        if (items.some(i => !i.productSku.trim() || !i.productName.trim() || Number(i.unitPrice) <= 0)) {
-            alert("Enter a SKU, product name, and positive unit price for every item");
+        if (items.some(i => !i.productSku.trim() || !i.productName.trim() || Number(i.unitPrice) <= 0 || !Number.isInteger(Number(i.quantity)) || Number(i.quantity) < 1)) {
+            alert("Select a product and enter a positive whole-number quantity for every item");
             return;
         }
 
@@ -200,7 +197,7 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
                 )}
                 {!isLoadingReferenceData && !referenceError && products.length === 0 && (
                     <div className="mb-4 p-3 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-lg">
-                        No products currently have available stock in Inventory.
+                        No products are listed in Inventory.
                     </div>
                 )}
                 {error && (
@@ -254,7 +251,7 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
                                         <option value="">-- Select an available product --</option>
                                         {products.map(product => (
                                             <option key={product.id} value={product.sku}>
-                                                {product.name} ({product.sku}) ? ?{Number(product.price).toFixed(2)} ? {product.quantity} available
+                                                {product.name} ({product.sku}) — ₹{Number(product.price).toFixed(2)} · {product.quantity} in stock
                                             </option>
                                         ))}
                                     </select>
@@ -265,16 +262,21 @@ const CreateOrderModal = ({ isOpen, onClose, onOrderCreated }) => {
                                     <div className="p-1.5 text-xs bg-gray-50 rounded font-mono">?{Number(item.unitPrice || 0).toFixed(2)}</div>
                                 </div>
                                 <div className="col-span-2">
-                                    <label className="block text-[10px] text-gray-500 font-semibold mb-0.5">Qty {item.availableQuantity ? `(max ${item.availableQuantity})` : ''}</label>
+                                    <label className="block text-[10px] text-gray-500 font-semibold mb-0.5">Quantity</label>
                                     <input
                                         type="number"
                                         min="1"
-                                        max={item.availableQuantity || undefined}
                                         value={item.quantity}
                                         onChange={(e) => handleQuantityChange(idx, e.target.value)}
                                         disabled={!item.productSku}
+                                        required
                                         className="w-full p-1.5 border rounded text-xs focus:ring-1 focus:ring-blue-500"
                                     />
+                                    {item.productSku && (
+                                        <p className="mt-1 text-[10px] text-gray-500">
+                                            {item.availableQuantity} in stock now; Inventory checks availability after submission.
+                                        </p>
+                                    )}
                                 </div>
                                 <div className="col-span-2 text-right">
                                     <label className="block text-[10px] text-gray-500 font-semibold mb-0.5">Subtotal</label>

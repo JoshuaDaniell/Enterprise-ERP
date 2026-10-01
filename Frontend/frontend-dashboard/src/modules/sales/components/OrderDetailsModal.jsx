@@ -107,6 +107,15 @@ const OrderDetailsModal = ({ order, isOpen, onClose, onOrderUpdated }) => {
                         </button>
                     </div>
                 )}
+                {order.status === 'REJECTED' && (() => {
+                    const rejection = [...(order.statusHistory || [])].reverse().find(history => history.toStatus === 'REJECTED');
+                    return (
+                        <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900" role="status">
+                            <p className="font-bold">Inventory could not reserve this order.</p>
+                            <p className="mt-1">{rejection?.remarks || 'The requested quantity could not be fulfilled from current inventory.'}</p>
+                        </div>
+                    );
+                })()}
                 {/* Status History Timeline */}
                 <div>
                     <h4 className="text-xs font-bold text-gray-700 uppercase mb-2">Order History & Audit Trail</h4>
